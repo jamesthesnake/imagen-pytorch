@@ -1,7 +1,8 @@
 import math
 import copy
 from random import random
-from typing import List, Union
+from beartype.typing import List, Union
+from beartype import beartype
 from tqdm.auto import tqdm
 from functools import partial, wraps
 from contextlib import contextmanager, nullcontext
@@ -18,14 +19,13 @@ import torchvision.transforms as T
 
 import kornia.augmentation as K
 
-from einops import rearrange, repeat, reduce
+from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange, Reduce
 from einops_exts import rearrange_many, repeat_many, check_shape
-from einops_exts.torch import EinopsToAndFrom
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 
-from imagen_pytorch.imagen_video.imagen_video import Unet3D, resize_video_to
+from imagen_pytorch.imagen_video import Unet3D, resize_video_to
 
 # helper functions
 
@@ -207,8 +207,8 @@ class GaussianDiffusionContinuousTimes(nn.Module):
     def get_times(self, batch_size, noise_level, *, device):
         return torch.full((batch_size,), noise_level, device = device, dtype = torch.float32)
 
-    def sample_random_times(self, batch_size, max_thres = 0.999, *, device):
-        return torch.zeros((batch_size,), device = device).float().uniform_(0, max_thres)
+    def sample_random_times(self, batch_size, *, device):
+        return torch.zeros((batch_size,), device = device).float().uniform_(0, 1)
 
     def get_condition(self, times):
         return maybe(self.log_snr)(times)
@@ -682,14 +682,10 @@ class ResnetBlock(nn.Module):
         if exists(cond_dim):
             attn_klass = CrossAttention if not linear_attn else LinearCrossAttention
 
-            self.cross_attn = EinopsToAndFrom(
-                'b c h w',
-                'b (h w) c',
-                attn_klass(
-                    dim = dim_out,
-                    context_dim = cond_dim,
-                    **attn_kwargs
-                )
+            self.cross_attn = attn_klass(
+                dim = dim_out,
+                context_dim = cond_dim,
+                **attn_kwargs
             )
 
         self.block1 = Block(dim, dim_out, groups = groups)
@@ -712,7 +708,11 @@ class ResnetBlock(nn.Module):
 
         if exists(self.cross_attn):
             assert exists(cond)
+            h = rearrange(h, 'b c h w -> b h w c')
+            h, ps = pack([h], 'b * c')
             h = self.cross_attn(h, context = cond) + h
+            h, = unpack(h, ps, 'b * c')
+            h = rearrange(h, 'b h w c -> b c h w')
 
         h = self.block2(h, scale_shift = scale_shift)
 
@@ -970,14 +970,20 @@ class TransformerBlock(nn.Module):
 
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                EinopsToAndFrom('b c h w', 'b (h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim, cosine_sim_attn = cosine_sim_attn)),
-                ChanFeedForward(dim = dim, mult = ff_mult)
+                Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim, cosine_sim_attn = cosine_sim_attn),
+                FeedForward(dim = dim, mult = ff_mult)
             ]))
 
     def forward(self, x, context = None):
+        x = rearrange(x, 'b c h w -> b h w c')
+        x, ps = pack([x], 'b * c')
+
         for attn, ff in self.layers:
             x = attn(x, context = context) + x
             x = ff(x) + x
+
+        x, = unpack(x, ps, 'b * c')
+        x = rearrange(x, 'b h w c -> b c h w')
         return x
 
 class LinearAttentionTransformerBlock(nn.Module):
@@ -1091,6 +1097,7 @@ class Unet(nn.Module):
         lowres_cond = False,                # for cascading diffusion - https://cascaded-diffusion.github.io/
         layer_attns = True,
         layer_attns_depth = 1,
+        layer_mid_attns_depth = 1,
         layer_attns_add_text_cond = True,   # whether to condition the self-attention blocks with the text embeddings, as described in Appendix D.3.1
         attend_at_middle = True,            # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
         layer_cross_attns = True,
@@ -1339,7 +1346,7 @@ class Unet(nn.Module):
         mid_dim = dims[-1]
 
         self.mid_block1 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
-        self.mid_attn = EinopsToAndFrom('b c h w', 'b (h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
+        self.mid_attn = TransformerBlock(mid_dim, depth = layer_mid_attns_depth, **attn_kwargs) if attend_at_middle else None
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
         # upsample klass
@@ -2159,6 +2166,7 @@ class Imagen(nn.Module):
 
     @torch.no_grad()
     @eval_decorator
+    @beartype
     def sample(
         self,
         texts: List[str] = None,
@@ -2318,6 +2326,7 @@ class Imagen(nn.Module):
 
         return pil_images[output_index] # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
+    @beartype
     def p_losses(
         self,
         unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel],
@@ -2334,7 +2343,8 @@ class Imagen(nn.Module):
         times_next = None,
         pred_objective = 'noise',
         p2_loss_weight_gamma = 0.,
-        random_crop_size = None
+        random_crop_size = None,
+        **kwargs
     ):
         is_video = x_start.ndim == 5
 
@@ -2389,6 +2399,7 @@ class Imagen(nn.Module):
             lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_aug_times),
             lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
+            **kwargs
         )
 
         # self condition if needed
@@ -2396,7 +2407,7 @@ class Imagen(nn.Module):
         # Because 'unet' can be an instance of DistributedDataParallel coming from the
         # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
         # access the member 'module' of the wrapped unet instance.
-        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
+        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet.self_cond
 
         if self_cond and random() < 0.5:
             with torch.no_grad():
@@ -2445,16 +2456,22 @@ class Imagen(nn.Module):
 
         return losses.mean()
 
+    @beartype
     def forward(
         self,
-        images,
+        images, # rename to images or video
         unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
         unet_number = None,
-        cond_images = None
+        cond_images = None,
+        **kwargs
     ):
+        if self.is_video and images.ndim == 4:
+            images = rearrange(images, 'b c h w -> b c 1 h w')
+            kwargs.update(ignore_time = True)
+
         assert images.shape[-1] == images.shape[-2], f'the images you pass in must be a square, but received dimensions of {images.shape[2]}, {images.shape[-1]}'
         assert not (len(self.unets) > 1 and not exists(unet_number)), f'you must specify which unet you want trained, from a range of 1 to {len(self.unets)}, if you are training cascading DDPM (multiple unets)'
         unet_number = default(unet_number, 1)
@@ -2517,4 +2534,4 @@ class Imagen(nn.Module):
 
         images = self.resize_to(images, target_image_size)
 
-        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, cond_images = cond_images, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective, p2_loss_weight_gamma = p2_loss_weight_gamma, random_crop_size = random_crop_size)
+        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, cond_images = cond_images, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective, p2_loss_weight_gamma = p2_loss_weight_gamma, random_crop_size = random_crop_size, **kwargs)

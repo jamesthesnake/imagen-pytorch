@@ -46,7 +46,7 @@ def default(val, d):
 def cast_tuple(val, length = 1):
     if isinstance(val, list):
         val = tuple(val)
-    
+
     return val if isinstance(val, tuple) else ((val,) * length)
 
 def find_first(fn, arr):
@@ -400,8 +400,13 @@ class ImagenTrainer(nn.Module):
         # only allowing training for unet
 
         self.only_train_unet_number = only_train_unet_number
-        self.validate_and_set_unet_being_trained(only_train_unet_number)
+        self.prepared = False
 
+
+    def prepare(self):
+        assert not self.prepared, f'The trainer is allready prepared'
+        self.validate_and_set_unet_being_trained(self.only_train_unet_number)
+        self.prepared = True
     # computed values
 
     @property
@@ -455,13 +460,15 @@ class ImagenTrainer(nn.Module):
             return
 
         unet = self.imagen.get_unet(unet_number)
-        self.unet_being_trained = self.accelerator.prepare(unet)
         unet_index = unet_number - 1
 
         optimizer = getattr(self, f'optim{unet_index}')
         scheduler = getattr(self, f'scheduler{unet_index}')
 
-        optimizer = self.accelerator.prepare(optimizer)
+        if self.train_dl:
+            self.unet_being_trained, self.train_dl, optimizer = self.accelerator.prepare(unet, self.train_dl, optimizer)
+        else:
+            self.unet_being_trained, optimizer = self.accelerator.prepare(unet, optimizer)
 
         if exists(scheduler):
             scheduler = self.accelerator.prepare(scheduler)
@@ -529,14 +536,16 @@ class ImagenTrainer(nn.Module):
             return
 
         assert not exists(self.train_dl), 'training dataloader was already added'
-        self.train_dl = self.accelerator.prepare(dl)
+        assert not self.prepared, f'You need to add the dataset before preperation'
+        self.train_dl = dl
 
     def add_valid_dataloader(self, dl):
         if not exists(dl):
             return
 
         assert not exists(self.valid_dl), 'validation dataloader was already added'
-        self.valid_dl = self.accelerator.prepare(dl)
+        assert not self.prepared, f'You need to add the dataset before preperation'
+        self.valid_dl = dl
 
     def add_train_dataset(self, ds = None, *, batch_size, **dl_kwargs):
         if not exists(ds):
@@ -553,7 +562,7 @@ class ImagenTrainer(nn.Module):
             self.print(f'training with dataset of {len(ds)} samples and validating with randomly splitted {len(valid_ds)} samples')
 
         dl = DataLoader(ds, batch_size = batch_size, **dl_kwargs)
-        self.train_dl = self.accelerator.prepare(dl)
+        self.add_train_dataloader(dl)
 
         if not self.split_valid_from_train:
             return
@@ -567,7 +576,7 @@ class ImagenTrainer(nn.Module):
         assert not exists(self.valid_dl), 'validation dataloader was already added'
 
         dl = DataLoader(ds, batch_size = batch_size, **dl_kwargs)
-        self.valid_dl = self.accelerator.prepare(dl)
+        self.add_valid_dataloader(dl)
 
     def create_train_iter(self):
         assert exists(self.train_dl), 'training dataloader has not been registered with the trainer yet'
@@ -586,6 +595,8 @@ class ImagenTrainer(nn.Module):
         self.valid_dl_iter = cycle(self.valid_dl)
 
     def train_step(self, unet_number = None, **kwargs):
+        if not self.prepared:
+            self.prepare()
         self.create_train_iter()
         loss = self.step_with_dl_iter(self.train_dl_iter, unet_number = unet_number, **kwargs)
         self.update(unet_number = unet_number)
@@ -594,10 +605,10 @@ class ImagenTrainer(nn.Module):
     @torch.no_grad()
     @eval_decorator
     def valid_step(self, **kwargs):
+        if not self.prepared:
+            self.prepare()
         self.create_valid_iter()
-
         context = self.use_ema_unets if kwargs.pop('use_ema_unets', False) else nullcontext
-
         with context():
             loss = self.step_with_dl_iter(self.valid_dl_iter, **kwargs)
         return loss
@@ -930,8 +941,8 @@ class ImagenTrainer(nn.Module):
     def sample(self, *args, **kwargs):
         context = nullcontext if  kwargs.pop('use_non_ema', False) else self.use_ema_unets
 
-        self.print_untrained_unets()        
-        
+        self.print_untrained_unets()
+
         if not self.is_main:
             kwargs['use_tqdm'] = False
 

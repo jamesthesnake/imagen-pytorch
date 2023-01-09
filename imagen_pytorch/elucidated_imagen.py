@@ -40,7 +40,7 @@ from imagen_pytorch.imagen_pytorch import (
     unnormalize_zero_to_one,
 )
 
-from imagen_pytorch.imagen_video.imagen_video import (
+from imagen_pytorch.imagen_video import (
     Unet3D,
     resize_video_to
 )
@@ -687,14 +687,19 @@ class ElucidatedImagen(nn.Module):
 
     def forward(
         self,
-        images,
+        images, # rename to images or video
         unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
         unet_number = None,
-        cond_images = None
+        cond_images = None,
+        **kwargs
     ):
+        if self.is_video and images.ndim == 4:
+            images = rearrange(images, 'b c h w -> b c 1 h w')
+            kwargs.update(ignore_time = True)
+
         assert images.shape[-1] == images.shape[-2], f'the images you pass in must be a square, but received dimensions of {images.shape[2]}, {images.shape[-1]}'
         assert not (len(self.unets) > 1 and not exists(unet_number)), f'you must specify which unet you want trained, from a range of 1 to {len(self.unets)}, if you are training cascading DDPM (multiple unets)'
         unet_number = default(unet_number, 1)
@@ -803,6 +808,7 @@ class ElucidatedImagen(nn.Module):
             lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_aug_times),
             lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
+            **kwargs
         )
 
         # self conditioning - https://arxiv.org/abs/2208.04202 - training will be 25% slower
