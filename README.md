@@ -44,6 +44,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/TheFusion21">Kay</a> for contributing one line command training of Imagen!
 
+- <a href="https://github.com/HReynaud">Hadrien Reynaud</a> for testing out text-to-video on a medical dataset, sharing his results, and identifying issues!
+
 ## Install
 
 ```bash
@@ -559,6 +561,8 @@ imagen = ElucidatedImagen(
 
 This repository will also start accumulating new research around text guided video synthesis. For starters it will adopt the 3d unet architecture described by Jonathan Ho in <a href="https://arxiv.org/abs/2204.03458">Video Diffusion Models</a>
 
+Update: verified <a href="https://github.com/lucidrains/imagen-pytorch/issues/305#issuecomment-1407015141">working</a> by <a href="https://github.com/HReynaud">Hadrien Reynaud</a>!
+
 Ex.
 
 ```python
@@ -575,6 +579,7 @@ imagen = ElucidatedImagen(
     unets = (unet1, unet2),
     image_sizes = (16, 32),
     random_crop_sizes = (None, 16),
+    temporal_downsample_factor = (2, 1),        # in this example, the first unet would receive the video temporally downsampled by 2x
     num_sample_steps = 10,
     cond_drop_prob = 0.1,
     sigma_min = 0.002,                          # min noise level
@@ -695,6 +700,11 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] add v-parameterization (https://arxiv.org/abs/2202.00512) from <a href="https://imagen.research.google/video/paper.pdf">imagen video</a> paper, the only thing new
 - [x] incorporate all learnings from make-a-video (https://makeavideo.studio/)
 - [x] build out CLI tool for training, resuming training off config file
+- [x] allow for temporal interpolation at specific stages
+- [x] make sure temporal interpolation works with inpainting
+- [x] make sure one can customize all interpolation modes (some researchers are finding better results with trilinear)
+- [x] imagen-video : allow for conditioning on preceding (and possibly future) frames of videos. ignore time should not be allowed in that scenario
+- [x] make sure to automatically take care of temporal down/upsampling for conditioning video frames, but allow for an option to turn it off
 
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
 - [ ] bring in attention expertise for self attention layers in unet3d
@@ -716,7 +726,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] add textual inversion
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
 - [ ] make sure eventual dreambooth works with imagen-video
-- [ ] allow for temporal interpolation at specific stages
+- [ ] add framerate conditioning for video diffusion
+- [ ] make sure one can simulataneously condition on video frames as a prompt, as well as some conditioning image across all frames
 
 ## Citations
 
@@ -875,5 +886,14 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     journal = {ArXiv},
     year    = {2022},
     volume  = {abs/2210.02303}
+}
+```
+
+```bibtex
+@misc{gilmer2023intriguing
+    title  = {Intriguing Properties of Transformer Training Instabilities},
+    author = {Justin Gilmer, Andrea Schioppa, and Jeremy Cohen},
+    year   = {2023},
+    status = {to be published - one attention stabilization technique is circulating within Google Brain, being used by multiple teams}
 }
 ```

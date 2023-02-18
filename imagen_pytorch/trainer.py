@@ -12,6 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import random_split, DataLoader
 from torch.optim import Adam
+from lion_pytorch import Lion
 from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR
 from torch.cuda.amp import autocast, GradScaler
 
@@ -178,7 +179,7 @@ def split_args_and_kwargs(*args, split_size = None, **kwargs):
     split_kwargs_index = len_all_args - dict_len
 
     split_all_args = [split(arg, split_size = split_size) if exists(arg) and isinstance(arg, (torch.Tensor, Iterable)) else ((arg,) * num_chunks) for arg in all_args]
-    chunk_sizes = tuple(map(len, split_all_args[0]))
+    chunk_sizes = num_to_groups(batch_size, split_size)
 
     for (chunk_size, *chunked_all_args) in tuple(zip(chunk_sizes, *split_all_args)):
         chunked_args, chunked_kwargs_values = chunked_all_args[:split_kwargs_index], chunked_all_args[split_kwargs_index:]
@@ -253,6 +254,7 @@ class ImagenTrainer(nn.Module):
         checkpoint_fs = None,
         fs_kwargs: dict = None,
         max_checkpoints_keep = 20,
+        use_lion = False,
         **kwargs
     ):
         super().__init__()
@@ -334,13 +336,22 @@ class ImagenTrainer(nn.Module):
         lr, eps, warmup_steps, cosine_decay_max_steps = map(partial(cast_tuple, length = self.num_unets), (lr, eps, warmup_steps, cosine_decay_max_steps))
 
         for ind, (unet, unet_lr, unet_eps, unet_warmup_steps, unet_cosine_decay_max_steps) in enumerate(zip(self.imagen.unets, lr, eps, warmup_steps, cosine_decay_max_steps)):
-            optimizer = Adam(
-                unet.parameters(),
-                lr = unet_lr,
-                eps = unet_eps,
-                betas = (beta1, beta2),
-                **kwargs
-            )
+
+            if use_lion:
+                optimizer = Lion(
+                    unet.parameters(),
+                    lr = unet_lr,
+                    betas = (beta1, beta2),
+                    use_triton = True
+                )
+            else:
+                optimizer = Adam(
+                    unet.parameters(),
+                    lr = unet_lr,
+                    eps = unet_eps,
+                    betas = (beta1, beta2),
+                    **kwargs
+                )
 
             if self.use_ema:
                 self.ema_unets.append(EMA(unet, **ema_kwargs))
