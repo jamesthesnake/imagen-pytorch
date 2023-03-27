@@ -341,8 +341,7 @@ class ImagenTrainer(nn.Module):
                 optimizer = Lion(
                     unet.parameters(),
                     lr = unet_lr,
-                    betas = (beta1, beta2),
-                    use_triton = True
+                    betas = (beta1, beta2)
                 )
             else:
                 optimizer = Adam(
@@ -605,11 +604,13 @@ class ImagenTrainer(nn.Module):
 
         self.valid_dl_iter = cycle(self.valid_dl)
 
-    def train_step(self, unet_number = None, **kwargs):
+    def train_step(self, *, unet_number = None, **kwargs):
         if not self.prepared:
             self.prepare()
         self.create_train_iter()
-        loss = self.step_with_dl_iter(self.train_dl_iter, unet_number = unet_number, **kwargs)
+
+        kwargs = {'unet_number': unet_number, **kwargs}
+        loss = self.step_with_dl_iter(self.train_dl_iter, **kwargs)
         self.update(unet_number = unet_number)
         return loss
 

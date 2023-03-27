@@ -728,6 +728,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] make sure eventual dreambooth works with imagen-video
 - [ ] add framerate conditioning for video diffusion
 - [ ] make sure one can simulataneously condition on video frames as a prompt, as well as some conditioning image across all frames
+- [ ] test and add distillation technique from <a href="https://arxiv.org/abs/2303.01469">consistency models</a>
 
 ## Citations
 
@@ -744,16 +745,6 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     title   = {Flamingo: a Visual Language Model for Few-Shot Learning},
     author  = {Jean-Baptiste Alayrac et al},
     year    = {2022}
-}
-```
-
-```bibtex
-@article{Choi2022PerceptionPT,
-    title   = {Perception Prioritized Training of Diffusion Models},
-    author  = {Jooyoung Choi and Jungbeom Lee and Chaehun Shin and Sungwon Kim and Hyunwoo J. Kim and Sung-Hoon Yoon},
-    journal = {ArXiv},
-    year    = {2022},
-    volume  = {abs/2204.00227}
 }
 ```
 
@@ -895,5 +886,33 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     author = {Justin Gilmer, Andrea Schioppa, and Jeremy Cohen},
     year   = {2023},
     status = {to be published - one attention stabilization technique is circulating within Google Brain, being used by multiple teams}
+}
+```
+
+```bibtex
+@inproceedings{Hang2023EfficientDT,
+    title   = {Efficient Diffusion Training via Min-SNR Weighting Strategy},
+    author  = {Tiankai Hang and Shuyang Gu and Chen Li and Jianmin Bao and Dong Chen and Han Hu and Xin Geng and Baining Guo},
+    year    = {2023}
+}
+```
+
+```bibtex
+@article{Zhang2021TokenST,
+    title   = {Token Shift Transformer for Video Classification},
+    author  = {Hao Zhang and Y. Hao and Chong-Wah Ngo},
+    journal = {Proceedings of the 29th ACM International Conference on Multimedia},
+    year    = {2021}
+}
+```
+
+```bibtex
+@inproceedings{anonymous2022normformer,
+    title   = {NormFormer: Improved Transformer Pretraining with Extra Normalization},
+    author  = {Anonymous},
+    booktitle = {Submitted to The Tenth International Conference on Learning Representations },
+    year    = {2022},
+    url     = {https://openreview.net/forum?id=GMYWzWztDx5},
+    note    = {under review}
 }
 ```
