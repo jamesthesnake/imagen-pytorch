@@ -402,6 +402,7 @@ class ElucidatedImagen(nn.Module):
         dynamic_threshold = True,
         cond_scale = 1.,
         use_tqdm = True,
+        inpaint_videos = None,
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
@@ -453,13 +454,14 @@ class ElucidatedImagen(nn.Module):
 
         # prepare inpainting images and mask
 
+        inpaint_images = default(inpaint_videos, inpaint_images)
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
         resample_times = inpaint_resample_times if has_inpainting else 1
 
         if has_inpainting:
             inpaint_images = self.normalize_img(inpaint_images)
             inpaint_images = self.resize_to(inpaint_images, shape[-1], **resize_kwargs)
-            inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
+            inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1], **resize_kwargs).bool()
 
         # unet kwargs
 
@@ -554,6 +556,7 @@ class ElucidatedImagen(nn.Module):
         cond_images = None,
         cond_video_frames = None,
         post_cond_video_frames = None,
+        inpaint_videos = None,
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
@@ -593,6 +596,10 @@ class ElucidatedImagen(nn.Module):
             text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
             batch_size = text_embeds.shape[0]
 
+        # inpainting
+
+        inpaint_images = default(inpaint_videos, inpaint_images)
+
         if exists(inpaint_images):
             if self.unconditional:
                 if batch_size == 1: # assume researcher wants to broadcast along inpainted images
@@ -618,6 +625,14 @@ class ElucidatedImagen(nn.Module):
         cond_scale = cast_tuple(cond_scale, num_unets)
 
         # handle video and frame dimension
+
+        if self.is_video and exists(inpaint_images):
+            video_frames = inpaint_images.shape[2]
+
+            if inpaint_masks.ndim == 3:
+                inpaint_masks = repeat(inpaint_masks, 'b h w -> b f h w', f = video_frames)
+
+            assert inpaint_masks.shape[1] == video_frames
 
         assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
 
