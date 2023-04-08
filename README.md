@@ -18,6 +18,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://huggingface.co/">🤗 Huggingface</a> for their amazing transformers library. The text encoder portion is pretty much taken care of because of them
 
+- <a href="http://www.jonathanho.me/">Jonathan Ho</a> for bringing about a revolution in generative artificial intelligence through <a href="https://arxiv.org/abs/2006.11239">his seminal paper</a>
+
 - <a href="https://github.com/sgugger">Sylvain</a> and <a href="https://github.com/muellerzr">Zachary</a> for the <a href="https://github.com/huggingface/accelerate">Accelerate</a> library, which this repository uses for distributed training
 
 - <a href="https://github.com/arogozhnikov">Alex</a> for <a href="https://github.com/arogozhnikov/einops">einops</a>, indispensable tool for tensor manipulation
@@ -39,6 +41,10 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 - <a href="https://github.com/BIGJUN777">BIGJUN</a> for catching a big bug with continuous time gaussian diffusion noise level conditioning at inference time
 
 - <a href="https://github.com/animebing">Bingbing</a> for identifying a bug with sampling and order of normalizing and noising with low resolution conditioning image
+
+- <a href="https://github.com/TheFusion21">Kay</a> for contributing one line command training of Imagen!
+
+- <a href="https://github.com/HReynaud">Hadrien Reynaud</a> for testing out text-to-video on a medical dataset, sharing his results, and identifying issues!
 
 ## Install
 
@@ -389,16 +395,69 @@ That's it!
 
 ## Command-line
 
-To further democratize the use of this machine imagination, I have built in the ability to generate an image with any text prompt using one command line as so
+Imagen can also be used via CLI directly.
+
+### Configuration
 
 ex.
 
 ```bash
-$ imagen --model ./path/to/model/checkpoint.pt "a squirrel raiding the birdfeeder"
+$ imagen config
+```
+or
+```bash
+$ imagen config --path ./configs/config.json
+```
+
+In the config you are able to change settings for the trainer, dataset and the imagen config.
+
+The Imagen config parameters can be found <a href="https://github.com/lucidrains/imagen-pytorch/blob/f8cc75f4d9020998c577b3770d3f260ce2ee2dcf/imagen_pytorch/configs.py#L68">here</a>
+
+The Elucidated Imagen config parameters can be found <a href="https://github.com/lucidrains/imagen-pytorch/blob/f8cc75f4d9020998c577b3770d3f260ce2ee2dcf/imagen_pytorch/configs.py#L108">here</a>
+
+The Imagen Trainer config parameters can be found <a href="https://github.com/lucidrains/imagen-pytorch/blob/f8cc75f4d9020998c577b3770d3f260ce2ee2dcf/imagen_pytorch/trainer.py#L226">here</a>
+
+For the dataset parameters all dataloader parameters can be used.
+
+### Training
+
+This command allows you to train or resume training your model
+
+ex.
+```bash
+$ imagen train
+```
+or
+```bash
+$ imagen train --unet 2 --epoches 10000 --valid 100
+```
+
+You can pass following arguments to the training command.
+
+- `--config` specify the config file to use for training [default: ./imagen_config.json]
+- `--unet` the index of the unet to train [default: 1]
+- `--epoches` how many epoches to train for [default: 1000]
+- `--text` specify the text to samples with for every 100 epoches
+- `--valid` enable validation and optionally specify how many epoches between each validation [default: false]
+
+### Sampling
+
+Be aware when sampling your checkpoint should have trained all unets to get a usable result.
+
+ex.
+
+```bash
+$ imagen sample --model ./path/to/model/checkpoint.pt "a squirrel raiding the birdfeeder"
 # image is saved to ./a_squirrel_raiding_the_birdfeeder.png
 ```
 
-In order to save checkpoints that can make use of this feature, you must instantiate your Imagen instance using the config classes, `ImagenConfig` and `ElucidatedImagenConfig`
+You can pass following arguments to the sample command.
+
+- `--model` specify the model file to use for sampling
+- `--cond_scale` conditioning scale (classifier free guidance) in decoder
+- `--load_ema` load EMA version of unets if available
+
+In order to use a saved checkpoint with this feature, you either must instantiate your Imagen instance using the config classes, `ImagenConfig` and `ElucidatedImagenConfig` or create a checkpoint via the CLI directly
 
 For proper training, you'll likely want to setup config-driven training anyways.
 
@@ -464,6 +523,23 @@ inpainted_images = trainer.sample(texts = [
 inpainted_images # (4, 3, 512, 512)
 ```
 
+For video, similarly pass in your videos to `inpaint_videos` keyword on `.sample`. Inpainting mask can either be the same across all frames `(batch, height, width)` or different `(batch, frames, height, width)`
+
+```python
+
+inpaint_videos = torch.randn(4, 3, 8, 512, 512).cuda()   # (batch, channels, frames, height, width)
+inpaint_masks = torch.ones((4, 8, 512, 512)).bool().cuda()  # (batch, frames, height, width)
+
+inpainted_videos = trainer.sample(texts = [
+    'a whale breaching from afar',
+    'young girl blowing out candles on her birthday cake',
+    'fireworks with blue and green sparkles',
+    'dust motes swirling in the morning sunshine on the windowsill'
+], inpaint_videos = inpaint_videos, inpaint_masks = inpaint_masks, cond_scale = 5.)
+
+inpainted_videos # (4, 3, 8, 512, 512)
+```
+
 ## Experimental
 
 <a href="https://research.nvidia.com/person/tero-karras">Tero Karras</a> of StyleGAN fame has written a <a href="https://arxiv.org/abs/2206.00364">new paper</a> with results that have been corroborated by a number of independent researchers as well as on my own machine. I have decided to create a version of `Imagen`, the `ElucidatedImagen`, so that one can use the new elucidated DDPM for text-guided cascading generation.
@@ -498,9 +574,11 @@ imagen = ElucidatedImagen(
 
 ```
 
-## Text to Video (ongoing research)
+## Text to Video
 
 This repository will also start accumulating new research around text guided video synthesis. For starters it will adopt the 3d unet architecture described by Jonathan Ho in <a href="https://arxiv.org/abs/2204.03458">Video Diffusion Models</a>
+
+Update: verified <a href="https://github.com/lucidrains/imagen-pytorch/issues/305#issuecomment-1407015141">working</a> by <a href="https://github.com/HReynaud">Hadrien Reynaud</a>!
 
 Ex.
 
@@ -518,6 +596,7 @@ imagen = ElucidatedImagen(
     unets = (unet1, unet2),
     image_sizes = (16, 32),
     random_crop_sizes = (None, 16),
+    temporal_downsample_factor = (2, 1),        # in this example, the first unet would receive the video temporally downsampled by 2x
     num_sample_steps = 10,
     cond_drop_prob = 0.1,
     sigma_min = 0.002,                          # min noise level
@@ -547,7 +626,10 @@ videos = torch.randn(4, 3, 10, 32, 32).cuda() # (batch, channels, time / video f
 # for this example, only training unet 1
 
 trainer = ImagenTrainer(imagen)
-trainer(videos, texts = texts, unet_number = 1)
+
+# you can also ignore time when training on video initially, shown to improve results in video-ddpm paper. eventually will make the 3d unet trainable with either images or video. research shows it is essential (with current data regimes) to train first on text-to-image. probably won't be true in another decade. all big data becomes small data
+
+trainer(videos, texts = texts, unet_number = 1, ignore_time = False)
 trainer.update(unet_number = 1)
 
 videos = trainer.sample(texts = texts, video_frames = 20) # extrapolating to 20 frames from training on 10 frames
@@ -555,6 +637,10 @@ videos = trainer.sample(texts = texts, video_frames = 20) # extrapolating to 20 
 videos.shape # (4, 3, 20, 32, 32)
 
 ```
+
+You can also train on text - image pairs first. The `Unet3D` will automatically convert it to single framed videos and learn without the temporal components (by automatically setting `ignore_time = True`), whether it be 1d convolutions or causal attention across time.
+
+This is the current approach taken by all the big artificial intelligence labs (Brain, MetaAI, Bytedance)
 
 ## FAQ
 
@@ -628,6 +714,17 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] move video frames to sample function, as we will be attempting time extrapolation
 - [x] attention bias to null key / values should be a learned scalar of head dimension
 - [x] add self-conditioning from <a href="https://arxiv.org/abs/2208.04202">bit diffusion</a> paper, already coded up at <a href="https://github.com/lucidrains/denoising-diffusion-pytorch/commit/beb2f2d8dd9b4f2bd5be4719f37082fe061ee450">ddpm-pytorch</a>
+- [x] add v-parameterization (https://arxiv.org/abs/2202.00512) from <a href="https://imagen.research.google/video/paper.pdf">imagen video</a> paper, the only thing new
+- [x] incorporate all learnings from make-a-video (https://makeavideo.studio/)
+- [x] build out CLI tool for training, resuming training off config file
+- [x] allow for temporal interpolation at specific stages
+- [x] make sure temporal interpolation works with inpainting
+- [x] make sure one can customize all interpolation modes (some researchers are finding better results with trilinear)
+- [x] imagen-video : allow for conditioning on preceding (and possibly future) frames of videos. ignore time should not be allowed in that scenario
+- [x] make sure to automatically take care of temporal down/upsampling for conditioning video frames, but allow for an option to turn it off
+- [x] make sure inpainting works with video
+- [x] make sure inpainting mask for video can accept be customized per frame
+
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
 - [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
@@ -635,9 +732,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] consider <a href="github.com/lucidrains/perceiver-ar-pytorch">perceiver-ar approach</a> to attending to past time
 - [ ] frame dropouts during attention for achieving both regularizing effect as well as shortened training time
 - [ ] investigate frank wood's claims https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch and either add the hierarchical sampling technique, or let people know about its deficiencies
-- [ ] make sure inpainting works with video
 - [ ] offer challenging moving mnist (with distractor objects) as a one-line trainable baseline for researchers to branch off of for text to video
-- [ ] build out CLI tool for training, resuming training off config file
 - [ ] preencoding of text to memmapped embeddings
 - [ ] be able to create dataloader iterators based on the old epoch style, also configure shuffling etc
 - [ ] be able to also pass in arguments (instead of requiring forward to be all keyword args on model)
@@ -648,6 +743,10 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] accommodate <a href="https://dreambooth.github.io/">dream booth</a> fine tuning
 - [ ] add textual inversion
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
+- [ ] make sure eventual dreambooth works with imagen-video
+- [ ] add framerate conditioning for video diffusion
+- [ ] make sure one can simulataneously condition on video frames as a prompt, as well as some conditioning image across all frames
+- [ ] test and add distillation technique from <a href="https://arxiv.org/abs/2303.01469">consistency models</a>
 
 ## Citations
 
@@ -664,16 +763,6 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     title   = {Flamingo: a Visual Language Model for Few-Shot Learning},
     author  = {Jean-Baptiste Alayrac et al},
     year    = {2022}
-}
-```
-
-```bibtex
-@article{Choi2022PerceptionPT,
-    title   = {Perception Prioritized Training of Diffusion Models},
-    author  = {Jooyoung Choi and Jungbeom Lee and Chaehun Shin and Sungwon Kim and Hyunwoo J. Kim and Sung-Hoon Yoon},
-    journal = {ArXiv},
-    year    = {2022},
-    volume  = {abs/2204.00227}
 }
 ```
 
@@ -773,11 +862,75 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 ```
 
 ```bibtex
+@misc{Singer2022,
+    author  = {Uriel Singer},
+    url     = {https://makeavideo.studio/Make-A-Video.pdf}
+}
+```
+
+```bibtex
 @article{Sunkara2022NoMS,
     title   = {No More Strided Convolutions or Pooling: A New CNN Building Block for Low-Resolution Images and Small Objects},
     author  = {Raja Sunkara and Tie Luo},
     journal = {ArXiv},
     year    = {2022},
     volume  = {abs/2208.03641}
+}
+```
+
+```bibtex
+@article{Salimans2022ProgressiveDF,
+    title   = {Progressive Distillation for Fast Sampling of Diffusion Models},
+    author  = {Tim Salimans and Jonathan Ho},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2202.00512}
+}
+```
+
+```bibtex
+@article{Ho2022ImagenVH,
+    title   = {Imagen Video: High Definition Video Generation with Diffusion Models},
+    author  = {Jonathan Ho and William Chan and Chitwan Saharia and Jay Whang and Ruiqi Gao and Alexey A. Gritsenko and Diederik P. Kingma and Ben Poole and Mohammad Norouzi and David J. Fleet and Tim Salimans},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2210.02303}
+}
+```
+
+```bibtex
+@misc{gilmer2023intriguing
+    title  = {Intriguing Properties of Transformer Training Instabilities},
+    author = {Justin Gilmer, Andrea Schioppa, and Jeremy Cohen},
+    year   = {2023},
+    status = {to be published - one attention stabilization technique is circulating within Google Brain, being used by multiple teams}
+}
+```
+
+```bibtex
+@inproceedings{Hang2023EfficientDT,
+    title   = {Efficient Diffusion Training via Min-SNR Weighting Strategy},
+    author  = {Tiankai Hang and Shuyang Gu and Chen Li and Jianmin Bao and Dong Chen and Han Hu and Xin Geng and Baining Guo},
+    year    = {2023}
+}
+```
+
+```bibtex
+@article{Zhang2021TokenST,
+    title   = {Token Shift Transformer for Video Classification},
+    author  = {Hao Zhang and Y. Hao and Chong-Wah Ngo},
+    journal = {Proceedings of the 29th ACM International Conference on Multimedia},
+    year    = {2021}
+}
+```
+
+```bibtex
+@inproceedings{anonymous2022normformer,
+    title   = {NormFormer: Improved Transformer Pretraining with Extra Normalization},
+    author  = {Anonymous},
+    booktitle = {Submitted to The Tenth International Conference on Learning Representations },
+    year    = {2022},
+    url     = {https://openreview.net/forum?id=GMYWzWztDx5},
+    note    = {under review}
 }
 ```
