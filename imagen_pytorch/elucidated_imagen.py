@@ -284,8 +284,11 @@ class ElucidatedImagen(nn.Module):
         if exists(unet_number):
             unet = self.unets[unet_number - 1]
 
+        cpu = torch.device('cpu')
+
         devices = [module_device(unet) for unet in self.unets]
-        self.unets.cpu()
+
+        self.unets.to(cpu)
         unet.to(self.device)
 
         yield
@@ -399,6 +402,7 @@ class ElucidatedImagen(nn.Module):
         dynamic_threshold = True,
         cond_scale = 1.,
         use_tqdm = True,
+        inpaint_videos = None,
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
@@ -450,13 +454,14 @@ class ElucidatedImagen(nn.Module):
 
         # prepare inpainting images and mask
 
+        inpaint_images = default(inpaint_videos, inpaint_images)
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
         resample_times = inpaint_resample_times if has_inpainting else 1
 
         if has_inpainting:
             inpaint_images = self.normalize_img(inpaint_images)
             inpaint_images = self.resize_to(inpaint_images, shape[-1], **resize_kwargs)
-            inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
+            inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1], **resize_kwargs).bool()
 
         # unet kwargs
 
@@ -551,6 +556,7 @@ class ElucidatedImagen(nn.Module):
         cond_images = None,
         cond_video_frames = None,
         post_cond_video_frames = None,
+        inpaint_videos = None,
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
@@ -568,6 +574,7 @@ class ElucidatedImagen(nn.Module):
         return_all_unet_outputs = False,
         return_pil_images = False,
         use_tqdm = True,
+        use_one_unet_in_gpu = True,
         device = None,
     ):
         device = default(device, self.device)
@@ -588,6 +595,10 @@ class ElucidatedImagen(nn.Module):
 
             text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
             batch_size = text_embeds.shape[0]
+
+        # inpainting
+
+        inpaint_images = default(inpaint_videos, inpaint_images)
 
         if exists(inpaint_images):
             if self.unconditional:
@@ -614,6 +625,14 @@ class ElucidatedImagen(nn.Module):
         cond_scale = cast_tuple(cond_scale, num_unets)
 
         # handle video and frame dimension
+
+        if self.is_video and exists(inpaint_images):
+            video_frames = inpaint_images.shape[2]
+
+            if inpaint_masks.ndim == 3:
+                inpaint_masks = repeat(inpaint_masks, 'b h w -> b f h w', f = video_frames)
+
+            assert inpaint_masks.shape[1] == video_frames
 
         assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
 
@@ -649,7 +668,7 @@ class ElucidatedImagen(nn.Module):
 
             assert not isinstance(unet, NullUnet), 'cannot sample from null unet'
 
-            context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
+            context = self.one_unet_in_gpu(unet = unet) if is_cuda and use_one_unet_in_gpu else nullcontext()
 
             with context:
                 lowres_cond_img = lowres_noise_times = None
