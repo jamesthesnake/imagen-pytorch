@@ -20,7 +20,7 @@ def load_imagen_from_checkpoint(
     model_path = Path(checkpoint_path)
     full_model_path = str(model_path.resolve())
     assert model_path.exists(), f'checkpoint not found at {full_model_path}'
-    loaded = torch.load(str(model_path))
+    loaded = torch.load(str(model_path), map_location='cpu')
 
     imagen_params = safeget(loaded, 'imagen_params')
     imagen_type = safeget(loaded, 'imagen_type')
@@ -30,7 +30,7 @@ def load_imagen_from_checkpoint(
     elif imagen_type == 'elucidated':
         imagen_klass = ElucidatedImagenConfig
     else:
-        raise ValueError(f'unknown imagen type {imagen_type}')
+        raise ValueError(f'unknown imagen type {imagen_type} - you need to instantiate your Imagen with configurations, using classes ImagenConfig or ElucidatedImagenConfig')
 
     assert exists(imagen_params) and exists(imagen_type), 'imagen type and configuration not saved in this checkpoint'
 
