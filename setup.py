@@ -26,15 +26,14 @@ setup(
     'denoising-diffusion'
   ],
   install_requires=[
-    'accelerate',
+    'accelerate>=0.23.0',
     'beartype',
     'click',
     'datasets',
-    'einops>=0.6.1',
+    'einops>=0.7.0',
     'ema-pytorch>=0.0.3',
     'fsspec',
     'kornia',
-    'lion-pytorch',
     'numpy',
     'packaging',
     'pillow',
@@ -45,7 +44,6 @@ setup(
     'torch>=1.6',
     'torchvision',
     'transformers',
-    'triton',
     'tqdm'
   ],
   classifiers=[
